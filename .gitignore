@@ -1,11 +1,17 @@
 # History files
 .Rhistory
 
+# Rmd file
+*.Rmd
+
+# HTML file
+*.html
+
 #Session Data Files
 .RData
 
 #DS_Store files
 .DS_Store
 
-#Scrape directory
-*Scrape*
+# subdirectories
+*collect*
