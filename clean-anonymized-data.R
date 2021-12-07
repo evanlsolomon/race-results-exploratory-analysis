@@ -4,10 +4,14 @@ library(readr)
 library(stringr)
 library(stringi)
 library(lubridate)
+library(ggmap)
 
+# IMPORT DATA
 setwd("/Users/evanlsolomon/environment/RProjects/biostatistics/final_project")
 raw_runner_data <- read_csv("./20211122_112206_anonymized-raw-runner-data.csv")
 
+
+#-------- SPLIT AND FORMAT Race COLUMN INTO race_year AND race_type COLUMNS
 #split Race column to  race_year and race_type columns
 pattern_for_split_race_years_and_type <- "([\\d]+) ([\\s\\S]+)"
 raw_runner_data <- raw_runner_data %>%  extract(Race, into = c("race_year","race_type"), regex = pattern_for_split_race_years_and_type) 
@@ -23,6 +27,8 @@ raw_runner_data[c("race_year", "races_run")] <- sapply(raw_runner_data[c("race_y
 
 
 # ---------- PARSE HOMETOWNS ------------
+# add extra columns to parse 'Hometown' into
+raw_runner_data <- raw_runner_data %>%  mutate(city = NA, state = NA, country_1 = NA, country_2 = NA)
 
 # How many Hometown's are NA? 5,854
 raw_runner_data[which(is.na(raw_runner_data$Hometown)),]
@@ -34,36 +40,33 @@ raw_runner_data <- raw_runner_data %>%
   fill(Hometown, .direction = "updown") %>%
   ungroup(ID)
 
-# Now it's 3,876 NAs in the hometown section
+# Now it's 3,876 NAs in the hometown column
 raw_runner_data[which(is.na(raw_runner_data$Hometown)),]
 
 #374,325 total records
 #these entries are na's in Hometown field 3,876 total 
-hometown_is_na <- raw_runner_data%>% 
-  filter(is.na(Hometown))
-
-# add columns to parse hometown into
-hometown_is_na <- hometown_is_na %>% mutate(city = NA, state = NA, country_1 = NA, country_2 = NA)
-
+hometown_is_na <- raw_runner_data%>% filter(is.na(Hometown))
 
 # there are 370,449 records with a value in the hometown field
-hometown_is_not_na <- raw_runner_data%>% 
-  filter(!is.na(Hometown))
+hometown_is_not_na <- raw_runner_data %>% filter(!is.na(Hometown))
 
 # 1. search for all entries of just two letters. 
 # send these to the state vector figure out what the later convert NR to NA
 # there are 42 records
 pattern_for_just_two_letters_in_hometown <- "^\\s*([a-zA-Z]{2})\\s*$"
+
+
 is_just_two_letters <- raw_runner_data %>%
   filter(str_detect(Hometown, pattern_for_just_two_letters_in_hometown))
-
 # add columns to parse hometown into
-is_just_two_letters <- is_just_two_letters %>% mutate(city=NA, state = Hometown, country_1 = NA, country_2 = NA)
+is_just_two_letters <- is_just_two_letters %>% mutate(state = Hometown)
+
 
 # 2. search for all entries where hometown ends in a space and two letters
 #    some two letter endings are not US states, see next chunk
 #    there are 369,555 records
 pattern_for_ends_in_a_space_two_letters <-"([,.\\w\\s]*) ([\\w]{2})$"
+
 ends_in_a_space_two_letters <- raw_runner_data %>%
   filter(str_detect(Hometown, pattern_for_ends_in_a_space_two_letters))
 
@@ -83,10 +86,7 @@ US_two_letter_endings <- setdiff(ends_in_a_space_two_letters, non_US_two_letter_
 # view unique values for non US two letter endings
 # get rid of double comma in record 353
 non_US_two_letter_endings$Hometown <- str_replace(non_US_two_letter_endings$Hometown, ",{1,2}", ",")
-non_US_two_letter_endings <- non_US_two_letter_endings %>%  separate(Hometown, c("city", "state"), ",", remove = FALSE)
-non_US_two_letter_endings <- non_US_two_letter_endings %>% mutate(country_1 = NA, country_2 = NA)
-non_US_two_letter_endings
-
+non_US_two_letter_endings <- non_US_two_letter_endings %>%  separate(Hometown, c("city", "state"), ", ", remove = FALSE)
 
 pattern_to_separate_US_two_letter_endings <- "^([\\w\\s';.-]*)[\\w, .]*([\\w\\s]{2})$"
 
@@ -114,7 +114,9 @@ US_two_letter_endings$state <- US_two_letter_endings$state %>% toupper()
 # add United States as country to this group
 US_two_letter_endings <- US_two_letter_endings %>% mutate(country_1 = "United States", country_2 = NA)
 US_two_letter_endings
+
 #  2.c separate out the NR records
+
 
 
 # 3.  search for all hometown entries without a comma and without just two letters (STATE) at the end--send these to a country vector.
@@ -136,12 +138,11 @@ just_countries_trial[just_countries_trial$country_1 == just_countries_trial$city
 
 #trim
 just_countries_trial$city<-  just_countries_trial$city %>% str_trim(side = "both")
+just_countries_trial$state<-  just_countries_trial$state %>% str_trim(side = "both")
 just_countries_trial$country_1<-  just_countries_trial$country_1 %>% str_trim(side = "both")
 just_countries_trial$country_2<-  just_countries_trial$country_2 %>% str_trim(side = "both")
 
-#inspect unique city country_1 country_2 combos to find simplifications
-just_countries_trial %>% select(city, country_1, country_2) %>% unique()
-just_countries_trial[!is.na(just_countries_trial$country_2),] %>% select(ID, Hometown, city, country_1, country_2)
+
 
 #change country_1:ETH to Ethiopia
 just_countries_trial[just_countries_trial$country_1 == "ETH","country_1"] <- "Ethiopia"
@@ -172,7 +173,9 @@ just_countries_trial[just_countries_trial$country_1 == "ZIM","country_1"] <- "Zi
 just_countries_trial[just_countries_trial$country_1 == "CAY","country_1"] <- "Cayman Islands"
 just_countries_trial[just_countries_trial$country_1 == "IND","country_1"] <- "India"
 
-
+#inspect unique city country_1 country_2 combos to find simplifications
+just_countries_trial %>% select(city, country_1, country_2) %>% unique()
+just_countries_trial[!is.na(just_countries_trial$country_2),] %>% select(ID, Hometown, city, country_1, country_2)
 
 #fix the records where the algorithm unnecessarily split the town, but leave the records where the runner identifies with two countries
 just_countries_trial[just_countries_trial$ID == 156519,]
@@ -257,7 +260,10 @@ raw_runner_data <- raw_runner_data %>%
 
 raw_runner_data <- raw_runner_data %>% relocate(imputedAge, .after = Age)
 
-raw_runner_data <- raw_runner_data %>% mutate(age = imputedAge) %>% select(-Age, -imputedAge)
+raw_runner_data <- raw_runner_data %>% 
+                    mutate(age = imputedAge) %>% 
+                    select(-Age, -imputedAge) %>%
+                    relocate(age, .after = sex)
 
 raw_runner_data
 
@@ -286,22 +292,150 @@ raw_runner_data$city<- raw_runner_data$city %>% str_trim(side = "both")
 raw_runner_data$country_1<- raw_runner_data$country_1 %>% str_trim(side = "both")
 raw_runner_data$country_2<- raw_runner_data$country_2 %>% str_trim(side = "both")
 
+# ------Impute missing country info-----
+# subset distinct combinations of records where country is NA and city or state is not NA,
+# in other words, country is missing, and we have either the city, the state or both
+# There are 551 of these with 210 distinct combinations of city and state
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) )
 raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) ) %>% distinct(city, state, .keep_all = TRUE)
-raw_runner_data[raw_runner_data$state %in% c("ON","AB", "QC", "BC", "SK"),"country_1"] <- "Canada"
 
+# 345 of these are in Canada with 76 distinct city state combinations:
+raw_runner_data[raw_runner_data$state %in% c("ON","AB", "QC", "BC", "SK", "NS", "NB"),]
+raw_runner_data[raw_runner_data$state %in% c("ON","AB", "QC", "BC", "SK", "NS", "NB"),] %>% distinct(city, state, .keep_all = TRUE)
 
+raw_runner_data[raw_runner_data$state %in% c("ON","AB", "QC", "BC", "SK", "NS", "NB"),"country_1"] <- "Canada"
+
+# check the subset again -- 206 are left with 134 distinct city/state combinations
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) )
 raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) ) %>% distinct(city, state, .keep_all = TRUE)
 
-raw_runner_data[raw_runner_data$ID == 32526,][7,"state"] <- "PA"
-raw_runner_data[raw_runner_data$ID == 32526,]
+# all of the VI for state are most likely Virginia except for St. Thomas which is a US Virgin Island
+raw_runner_data[raw_runner_data$state %in% "VI",]
 
-raw_runner_data[raw_runner_data$state == "VI" & !is.na(raw_runner_data$state),"state"] <- "VA"
+# change the St. Thomas VI state to NA and country_1 to U.S. Virgin Islands
+raw_runner_data[raw_runner_data$ID == 32526 & raw_runner_data$state %in% "VI",] <- raw_runner_data %>% 
+  filter(ID == 32526, state %in% "VI") %>%
+  mutate(state = NA, country_1 = "U.S. Virgin Islands")
 
+# change all remaining VI states to VA and their country to US
+raw_runner_data[raw_runner_data$state %in% "VI",] <- raw_runner_data %>% 
+  filter(state %in% "VI") %>% 
+  mutate(state = "VA", country_1 = "United States")
+
+# check the subset again -- 195 are left with 128 distinct city/state combinations
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) )
 raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) ) %>% distinct(city, state)
 
-raw_runner_data[(raw_runner_data$state %in% c("NY","VA","WA","CA","NJ","MD","PA","OH")) & is.na(raw_runner_data$country_1),]
-raw_runner_data[(raw_runner_data$state %in% c("NY","VA","WA","CA","NJ","MD","PA","OH")) & is.na(raw_runner_data$country_1), "country_1"] <- "United States"
-raw_runner_data[(raw_runner_data$state %in% c("NY","VA","WA","CA","NJ","MD","PA","OH")) & is.na(raw_runner_data$country_1),]
+
+# convert APO FPO DPO to NA's as these are not actual locations
+not_real_cities <- c("Apo", "APO", "Fpo", "FPO", "DPO", "Dpo")
+raw_runner_data %>% filter(city %in% not_real_cities)
+raw_runner_data[raw_runner_data$city %in% not_real_cities,] <- raw_runner_data[raw_runner_data$city %in% not_real_cities,] %>% 
+  mutate(city = NA,
+         state = ifelse(state %in% c("AE", "AP", "NR"), NA, state),
+         country_1 = "United States")
+
+# check the subset again -- 168 are left with 118 distinct city/state combinations
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) )
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) ) %>% distinct(city, state)
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) ) %>% count(city, state)
+
+# take a look at the count by state
+# there are 115 records with NR as state
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) )  %>% count(state)
+
+# change this record's state from NR to NA to make the next section easier
+raw_runner_data %>% filter(state %in% "NR" & is.na(city))
+raw_runner_data[is.na(raw_runner_data$city) & raw_runner_data$state %in% "NR", "state"] <- NA
+
+# fill in states that are NR with states for cities of identical name (only if there is 1 unique matching city name)  
+# convert character "NA" in city to NA
+raw_runner_data[raw_runner_data$city == "NA" & !is.na(raw_runner_data$city),]$city <- NA
+
+# There are 114 records with state as NR
+raw_runner_data[raw_runner_data$state %in% "NR",]
+
+# cities of records with state as NR
+cities_with_state_as_NR <- raw_runner_data[raw_runner_data$state %in% "NR","city"]
+cities_with_state_as_NR
+
+# id the state names you can fill--these are states of records that have city names that 
+# are in the cities_with_state_as_NR tbl, but also only have one matching state
+states_to_fill_in_for_records_with_state_as_NR <-
+raw_runner_data[raw_runner_data$city %in% cities_with_state_as_NR$city & !(raw_runner_data$state %in% "NR"),] %>% 
+  distinct(city, state) %>% add_count(city, name = "unique_states_for_city") %>% filter(unique_states_for_city == 1)
+
+#states_for_cities_with_states_as_NR <- 
+#  raw_runner_data[raw_runner_data$city %in% cities_with_state_as_NR$city,] %>% 
+#  filter(!is.na(state) & !is.na(city) & state != "NR") %>% 
+#  distinct(city, .keep_all = TRUE)
+#
+raw_runner_data <- raw_runner_data %>% 
+  mutate(
+    state = ifelse(
+      state %in% "NR" & city %in% states_to_fill_in_for_records_with_state_as_NR$city,
+      states_to_fill_in_for_records_with_state_as_NR[match(city,states_to_fill_in_for_records_with_state_as_NR$city),]$state,
+      state
+    )
+  )
+
+
+# There are 85 records with NA in the country that have US state abbreviations
+raw_runner_data[(raw_runner_data$state %in% c("CA","CT","DE","GA","IL","MA","MD","ME","NJ","NY","OH","PA", "VA","WA","WV")) & is.na(raw_runner_data$country_1),]
+raw_runner_data[(raw_runner_data$state %in% c("NY","VA","WA","CA","NJ","MD","PA","OH")) & is.na(raw_runner_data$country_1),] %>% distinct(city,state)
+
+# change the US state abbreviations to have country_1 of "United States"
+raw_runner_data[(raw_runner_data$state %in% c("CA","CT","DE","GA","IL","MA","MD","ME","NJ","NY","OH","PA", "VA","WA","WV")) & is.na(raw_runner_data$country_1), "country_1"] <- "United States"
+
+# check the subset again -- 82 are left with 68 distinct city/state combinations
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) )
+raw_runner_data %>% filter( is.na(country_1) & (!is.na(city) | !is.na(state)) ) %>% distinct(city, state)
+raw_runner_data %>% filter(is.na(country_1) & !is.na(city) &  !is.na(state) ) %>% add_count(state, sort = TRUE)
+
+# clean up some individual entries:
+raw_runner_data %>% filter(ID == 27214)
+raw_runner_data[raw_runner_data$ID == 27214 & raw_runner_data$city %in% "Kennebunkport",] <- raw_runner_data %>% 
+  filter(ID == 27214 & city %in% "Kennebunkport") %>%
+  mutate(state = "ME",
+         country_1 = "United States")
+
+raw_runner_data %>% filter(ID == 42170)
+raw_runner_data[raw_runner_data$ID == 42170,] <- raw_runner_data %>% 
+  filter(ID == 42170) %>%
+  mutate(state = NA,
+         country_1 = "Great Britain")
+
+raw_runner_data %>% filter(ID == 58636)
+raw_runner_data[raw_runner_data$ID == 58636,] <- raw_runner_data %>% 
+  filter(ID == 58636) %>%
+  mutate(state = "MD",
+         country_1 = "United States")
+
+raw_runner_data %>% filter(ID == 75481)
+raw_runner_data[raw_runner_data$ID == 75481,] <- raw_runner_data %>% 
+  filter(ID == 75481) %>%
+  mutate(city="Brechin",
+         state = NA,
+         country_1 = "Scotland")
+
+raw_runner_data %>% filter(ID == 167919)
+raw_runner_data[raw_runner_data$ID == 167919 & raw_runner_data$city %in% "Washington",] <- raw_runner_data %>% 
+  filter(ID == 167919 & city %in% "Washington") %>%
+  mutate(state = "DC",
+         country_1 = "United States")
+
+raw_runner_data %>% filter(ID == 50567)
+raw_runner_data[raw_runner_data$ID == 50567,] <- raw_runner_data %>% 
+  filter(ID == 50567) %>%
+  mutate(state = "ON",
+         country_1 = "Canada")
+
+raw_runner_data %>% filter(ID == 181545)
+raw_runner_data[raw_runner_data$ID == 181545,] <- raw_runner_data %>% 
+  filter(ID == 181545) %>%
+  mutate(city = "Sackville",
+         state = "NS",
+         country_1 = "Canada")
 
 
 raw_runner_data %>% filter( is.na(country_1) & !is.na(city) & is.na(state) ) %>% distinct(city, state)
@@ -309,7 +443,25 @@ raw_runner_data[is.na(raw_runner_data$country_1) & !is.na(raw_runner_data$city) 
 
 
 raw_runner_data %>% filter(is.na(country_1) & !is.na(city) &  !is.na(state) )
-raw_runner_data %>% filter(is.na(country_1) & !is.na(city) &  !is.na(state) ) %>% distinct(state, .keep_all = TRUE)
+raw_runner_data %>% filter(is.na(country_1) & !is.na(city) &  !is.na(state) ) %>% add_count(state)
+raw_runner_data %>% filter(is.na(country_1) & !is.na(city) &  !is.na(state) ) %>% distinct(city, state, .keep_all = TRUE)
+
+ids_of_runners_with_NR_for_state <- raw_runner_data %>% filter(state %in% "NR") %>% .$ID
+
+# fill in states that are NR based on states on record from same runner in other years
+raw_runner_data[raw_runner_data$races_run>1 & raw_runner_data$ID %in% ids_of_runners_with_NR_for_state,] <- raw_runner_data %>% 
+  group_by(ID) %>% 
+  filter(races_run >1 & ID %in% ids_of_runners_with_NR_for_state) %>% 
+  mutate(state = ifelse(state %in% c("NR", "MA"),NA,state)) %>% 
+  fill(state, country_1, .direction = "updown") %>% 
+  ungroup()
+
+raw_runner_data %>% filter(is.na(country_1) & !is.na(city) &  !is.na(state) )
+# check the subset again -- 42 are left with 37 distinct city/state combinations
+# leave them for now
+raw_runner_data %>% filter( state %in% "NR" )
+raw_runner_data %>% filter( state %in% "NR" ) %>% distinct(city, state)
+
 
 # --------- clean times ---------
 # Note: 'a' The 2015 running of the 10 mile race had to be cut short and had a total distance of 9.39 miles.
@@ -359,6 +511,14 @@ raw_runner_data <- raw_runner_data %>% mutate(imputed_time = hms::as_hms(as.diff
 # peek at 2015 10M times after adjustment
 raw_runner_data %>% filter(race_year == 2015)%>% select(ID, race_year, race_type, Time, imputed_time, Hometown)
 
+# clean up workspace
+rm(cities_with_state_as_NR)
+rm(states_to_fill_in_for_records_with_state_as_NR)
+rm(ids_of_runners_with_NR_for_state)
+rm(not_real_cities)
+rm(typical_time_pattern)
+rm(non_typical_time_pattern)
+
 
 #save mostly cleaned dataset
 fname <- paste0(format(lubridate::now(), "%Y%m%d_%H%M%S_"), "clean-anonymized-runner-data.csv")
@@ -366,5 +526,3 @@ write_csv(raw_runner_data, fname)
 
 rm(fname)
 rm(raw_runner_data)
-rm(typical_time_pattern)
-rm(non_typical_time_pattern)
